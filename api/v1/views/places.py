@@ -1,34 +1,37 @@
 #!/usr/bin/python3
 """
-Handles all default RESTful API actions for Place objects
+Module for handling Place-related API endpoints
 """
-from flask import jsonify, abort, request
 from api.v1.views import app_views
+from flask import jsonify, request, abort
 from models import storage
-from models.place import Place
-from models.city import City
 from models.state import State
+from models.city import City
+from models.place import Place
 from models.amenity import Amenity
 
-
 @app_views.route('/places_search', methods=['POST'], strict_slashes=False)
-def places_search():
+def search_places():
     """
-    Retrieves all Place objects depending on the JSON in the body
+    Search for places based on provided criteria
     """
-    if not request.is_json:
-        abort(400, "Not a JSON")
-    search_data = request.get_json()
-    if not search_data:
-        return jsonify([place.to_dict() for place in storage.all(Place).values()])
+    try:
+        search_data = request.get_json()
+        if search_data is None:
+            return jsonify({"error": "Not a JSON"}), 400
+    except Exception as e:
+        return jsonify({"error": "Not a JSON"}), 400
 
     states = search_data.get('states', [])
     cities = search_data.get('cities', [])
     amenities = search_data.get('amenities', [])
 
+    if not states and not cities and not amenities:
+        places = storage.all(Place).values()
+        return jsonify([place.to_dict() for place in places])
+
     place_set = set()
 
-    # Add places based on states
     if states:
         for state_id in states:
             state = storage.get(State, state_id)
@@ -37,7 +40,6 @@ def places_search():
                     for place in city.places:
                         place_set.add(place)
 
-    # Add places based on cities
     if cities:
         for city_id in cities:
             city = storage.get(City, city_id)
@@ -45,19 +47,9 @@ def places_search():
                 for place in city.places:
                     place_set.add(place)
 
-    # If no states or cities are provided, return all places
-    if not states and not cities:
-        place_set = set(storage.all(Place).values())
-
-    # Filter places by amenities
     if amenities:
-        amenities_set = set(amenities)
-        filtered_places = []
-        for place in place_set:
-            place_amenities = set([amenity.id for amenity in place.amenities])
-            if amenities_set.issubset(place_amenities):
-                filtered_places.append(place)
-        place_set = filtered_places
+        amenity_objs = [storage.get(Amenity, amenity_id) for amenity_id in amenities]
+        place_set = {place for place in place_set if all(amenity in place.amenities for amenity in amenity_objs)}
 
     return jsonify([place.to_dict() for place in place_set])
 
